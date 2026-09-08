@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>STARK Industries — J.A.R.V.I.S Control Panel</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: radial-gradient(ellipse at top, #0b1c33 0%, #050a14 70%);
+    color: #cfe6ff; min-height: 100vh; padding: 3rem;
+  }
+  .hud { max-width: 860px; margin: 0 auto; }
+  h1 { color: #6fd3ff; font-weight: 300; letter-spacing: .12em; text-transform: uppercase; }
+  h2 { color: #9adfff; margin: 2rem 0 .6rem; font-weight: 400; border-bottom: 1px solid #14395e; padding-bottom: .3rem;}
+  p.sub { color: #6c8db5; margin-top: .4rem; }
+  .status { margin-top: 2rem; width: 100%; border-collapse: collapse; }
+  .status th, .status td { border: 1px solid #14395e; padding: .55rem .9rem; text-align: left; font-size: .95rem; }
+  .status th { background: #0d2542; color: #8fd0ff; text-transform: uppercase; font-size: .75rem; letter-spacing: .1em; }
+  .ok { color: #58e08c; } .warn { color: #ffc65c; } .bad { color: #ff6d6d; }
+  nav a { color: #6fd3ff; margin-right: 1.2rem; text-decoration: none; font-size: .9rem; }
+  nav a:hover { text-decoration: underline; }
+  form { margin-top: 1rem; display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  form label { font-size: .85rem; color: #8fb3d9; }
+  input { background: #0a1a2e; border: 1px solid #1d4a78; color: #cfe6ff; padding: .5rem .8rem; border-radius: 4px; min-width: 220px;}
+  button { background: #1663a8; color: #eaf6ff; border: 0; padding: .55rem 1.4rem; border-radius: 4px; cursor: pointer; letter-spacing: .06em;}
+  button:hover { background: #1d79c9; }
+  .gen { margin-top: 3rem; color: #3a5f88; font-size: .75rem; }
+</style>
+</head>
+<body>
+  <div class="hud">
+    <h1>J.A.R.V.I.S Control Panel</h1>
+    <p class="sub">Just A Rather Very Intelligent System — build 0.1.0 · fixture target for offline agent cycles</p>
+
+    <nav>
+      <a href="#systems">Systems</a>
+      <a href="#auth">Operator Auth</a>
+      <a href="#archive">Archive</a>
+      <a href="about.html">About</a>
+    </nav>
+
+    <h2 id="systems">Systems Status</h2>
+    <table class="status">
+      <tr><th>Subsystem</th><th>State</th><th>Load</th><th>Uptime</th></tr>
+      <tr><td>Arc Reactor</td><td class="ok">NOMINAL</td><td>3.1 GW</td><td>412 d</td></tr>
+      <tr><td>Repulsor Array</td><td class="ok">NOMINAL</td><td>18%</td><td>412 d</td></tr>
+      <tr><td>Mark VII Fabricator</td><td class="warn">DEGRADED</td><td>61%</td><td>88 d</td></tr>
+      <tr><td>J.A.R.V.I.S Core</td><td class="ok">ONLINE</td><td>12%</td><td>412 d</td></tr>
+      <tr><td>Perimeter Defenses</td><td class="bad">OFFLINE</td><td>—</td><td>0 d</td></tr>
+    </table>
+
+    <h2 id="auth">Operator Auth</h2>
+    <form action="#" method="get">
+      <label for="operator">Operator ID</label>
+      <input id="operator" name="operator" type="text" placeholder="e.g. stark.t" required>
+      <label for="keycode">Keycode</label>
+      <input id="keycode" name="keycode" type="password" placeholder="••••••••">
+      <button type="submit">Authenticate</button>
+    </form>
+
+    <h2 id="archive">Archive</h2>
+    <p>Historic mission logs are mirrored locally: <a href="about.html">about this fixture</a>.</p>
+
+    <p class="gen">static fixture · served by jarvis.fixtures.FixtureServer · no external network required</p>
+  </div>
+</body>
+</html>
