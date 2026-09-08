@@ -1,0 +1,23 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# environment & secrets
+.env
+
+# runtime artifacts
+logs/
+*.log
+cookies.json
+
+# tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# os
+.DS_Store
+Thumbs.db
