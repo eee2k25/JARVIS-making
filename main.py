@@ -11,6 +11,8 @@ Usage:
     python main.py powerpoint [path]   # MS PowerPoint cycle (briefing blueprint)
     python main.py excel [path]        # MS Excel cycle (power budget blueprint)
     python main.py office-demo         # Word -> PowerPoint -> Excel, one by one
+    python main.py chat [file]         # talk to JARVIS (identity + memory + voice)
+    python main.py voice-test [text]   # speak via ElevenLabs (shadow without key)
     python main.py run <skill> --url X # run a registered skill
 """
 
@@ -25,6 +27,8 @@ from jarvis import JarvisAgent, __version__
 from jarvis.config import Settings
 from jarvis.fixtures import FixtureServer
 from jarvis.logging_setup import get_logger
+from jarvis.profile import OperatorProfile
+from jarvis.skills.conversation import ConverseSkill
 from jarvis.skills.office import ExcelSkill, PowerPointSkill, WordSkill
 from jarvis.skills.recon import WebReconSkill
 
@@ -258,6 +262,59 @@ def cmd_office_demo(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 1
 
 
+def cmd_chat(args: argparse.Namespace) -> int:
+    """Talk to JARVIS: identity + memory + brain + voice, one utterance per run.
+
+    Reads utterances from a file (one per line) or interactively from stdin.
+    """
+    settings = Settings.load()
+    profile = OperatorProfile.load(settings)
+    print(f"\n  J.A.R.V.I.S. chat — operator: {profile.name}")
+    print("  speak freely; 'exit' to end the session\n")
+
+    def utterances():
+        if args.file:
+            with open(args.file, encoding="utf-8") as fh:
+                for line in fh:
+                    yield line
+        else:
+            while True:
+                try:
+                    yield input("you> ")
+                except (EOFError, KeyboardInterrupt):
+                    print()
+                    return
+
+    with JarvisAgent(settings, dry_run=args.dry_run) as agent:
+        agent.register(ConverseSkill())
+        remembered = agent.memory.count()
+        if remembered:
+            print(f"  memory: {remembered} mission(s) remembered\n")
+        for line in utterances():
+            text = line.strip()
+            if not text:
+                continue
+            if text.lower() in ("exit", "quit"):
+                break
+            result = agent.run("converse", utterance=text)
+            reply = next((a.get("reported") for a in result.actions_executed
+                          if a.get("reported")), result.summary)
+            flag = "" if result.success else "  [FAILED]"
+            print(f"jarvis> {reply}{flag}\n")
+    return 0
+
+
+def cmd_voice_test(args: argparse.Namespace) -> int:
+    """Speak a line through the voice engine (ElevenLabs or shadow mode)."""
+    settings = Settings.load()
+    with JarvisAgent(settings, dry_run=args.dry_run) as agent:
+        voice = agent.modules["voice"]
+        res = voice.speak(args.text)
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        agent.shutdown()
+        return 0 if res else 1
+
+
 # ── wiring ───────────────────────────────────────────────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jarvis",
@@ -299,6 +356,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("office-demo",
                    help="run the Word -> PowerPoint -> Excel missions one by one"
                    ).set_defaults(fn=cmd_office_demo)
+
+    ch = sub.add_parser("chat",
+                        help="talk to JARVIS (identity + memory + voice loop)")
+    ch.add_argument("file", nargs="?", default=None,
+                    help="utterances file (one per line); omit for interactive")
+    ch.set_defaults(fn=cmd_chat)
+
+    vt = sub.add_parser("voice-test", help="speak a line via the voice engine")
+    vt.add_argument("text", nargs="?", default="At your service.")
+    vt.set_defaults(fn=cmd_voice_test)
     return p
 
 

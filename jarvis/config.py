@@ -59,6 +59,24 @@ class Settings:
     office_output_dir: str = field(default_factory=lambda: _env(
         "JARVIS_OFFICE_OUTPUT_DIR", "logs/office"))
 
+    # --- Operator identity (step 4: 'teach it who I am') ---
+    operator_profile: str = field(default_factory=lambda: _env(
+        "JARVIS_OPERATOR_PROFILE"))  # default: assets/profile/operator.md
+
+    # --- Long-term memory (step 5: mission history for few-shot context) ---
+    memory_db: str = field(default_factory=lambda: _env(
+        "JARVIS_MEMORY_DB", "logs/memory/jarvis.db"))  # ":memory:" disables disk
+
+    # --- Voice I/O (step 8: ElevenLabs TTS/STT) ---
+    elevenlabs_api_key: str = field(default_factory=lambda: _env(
+        "JARVIS_ELEVENLABS_API_KEY"))
+    voice_id: str = field(default_factory=lambda: _env(
+        "JARVIS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM"))  # ElevenLabs default voice
+    voice_model: str = field(default_factory=lambda: _env(
+        "JARVIS_VOICE_MODEL", "eleven_multilingual_v2"))
+    voice_output_dir: str = field(default_factory=lambda: _env(
+        "JARVIS_VOICE_OUTPUT_DIR", "logs/voice"))
+
     @property
     def force_dry_run(self) -> bool:
         """true/false explicit; 'auto' lets each module decide by capability."""

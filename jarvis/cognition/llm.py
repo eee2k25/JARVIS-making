@@ -28,6 +28,7 @@ ACTION_REGISTRY: dict[str, set[str]] = {
               "format", "add_chart", "save", "export_pdf", "launch"},
     "powerpoint": {"create", "open", "read", "add_slide", "add_image", "save",
                    "export_pdf", "launch"},
+    "voice": {"speak", "transcribe"},
     "system": {"report", "sleep"},
 }
 
@@ -83,9 +84,12 @@ Allowed actions:
   word:       create, open, read, add_heading, add_text, add_table, replace, save, export_pdf, launch
   excel:      create, open, read, write, append_rows, set_formula, format, add_chart, save, export_pdf, launch
   powerpoint: create, open, read, add_slide, add_image, save, export_pdf, launch
+  voice:      speak, transcribe
   system:     report, sleep
 Rules:
  - If the mission is informational, plan system.report with your findings in args.summary.
+ - For conversational perception (source='chat'), plan system.report whose args.summary
+   IS your reply to the operator, then voice.speak with the same text.
  - Prefer browser/parser over gui whenever a URL is involved.
  - For .docx / .pptx / .xlsx targets use the word / powerpoint / excel tools on the
    perception 'target' path (create/open first, then edit verbs, then save).
@@ -102,6 +106,16 @@ class LLMBrain(CognitiveEngine):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.name = f"llm:{settings.llm_model}"
+        # step 4: the operator's identity rides along on every decision
+        from ..profile import OperatorProfile
+
+        self.profile = OperatorProfile.load(settings)
+        self.system_prompt = SYSTEM_PROMPT
+        if self.profile.text.strip():
+            self.system_prompt += (
+                f"\n\nOPERATOR PROFILE (who you work for, how they like "
+                f"things done):\n{self.profile.text[:2000]}"
+            )
 
     # ── REST plumbing ────────────────────────────────────────────────────
     def _chat(self, messages: list[dict]) -> str:
@@ -144,7 +158,7 @@ class LLMBrain(CognitiveEngine):
         )
         try:
             raw = self._chat([
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_msg},
             ])
             data = self._extract_json(raw)
@@ -174,6 +188,8 @@ class OfflineBrain(CognitiveEngine):
 
     def decide(self, perception: dict, mission: str) -> Plan:
         source = perception.get("source", "")
+        if source == "chat":
+            return self._chat_plan(perception, mission)
         if source in ("word", "excel", "powerpoint"):
             return self._office_plan(source, perception, mission)
 
@@ -213,6 +229,30 @@ class OfflineBrain(CognitiveEngine):
             ),
             summary="offline plan: report inventory, render + screenshot target",
             actions=actions,
+            brain=self.name,
+        )
+
+    # ── conversational heuristic (the chat channel) ──────────────────────
+    def _chat_plan(self, perception: dict, mission: str) -> Plan:
+        utterance = str(perception.get("utterance", ""))
+        operator = perception.get("operator") or {}
+        memories = perception.get("memory_context") or []
+        name = operator.get("name", "Operator")
+        reply = (f"{name}, you said: \"{utterance[:120]}\". "
+                 f"I hold {len(memories)} mission memory fragment(s) "
+                 f"and I am at your service.")
+        return Plan(
+            rationale=(
+                "Offline heuristic: deterministic acknowledgement reply with "
+                "identity + memory awareness (no LLM endpoint configured)."
+            ),
+            summary=f"offline chat reply to {name}",
+            actions=[
+                Action("system", "report", {"summary": reply},
+                       reason="deliver the reply to the operator"),
+                Action("voice", "speak", {"text": reply},
+                       reason="speak the reply (shadowed without a voice key)"),
+            ],
             brain=self.name,
         )
 

@@ -16,13 +16,16 @@ from .config import Settings
 from .exceptions import (ActionError, JarvisError, ReasoningError,
                          SkillNotFoundError)
 from .logging_setup import get_logger, setup_logging
+from .memory import MemoryStore
 from .modules.base import AutomationModule
 from .modules.browser import BrowserModule
 from .modules.excel import ExcelModule
 from .modules.gui import GuiModule
 from .modules.parser import ParserModule
 from .modules.powerpoint import PowerPointModule
+from .modules.voice import VoiceModule
 from .modules.word import WordModule
+from .profile import OperatorProfile
 from .skills.base import Skill, SkillContext
 from .state_machine import AgentState as S
 from .state_machine import StateMachine
@@ -143,6 +146,11 @@ class ActionExecutor:
             ("excel", "save"): lambda a: module.save(a.get("path")),
             ("excel", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
             ("excel", "launch"): lambda a: module.launch(a.get("path")),
+            # voice (ElevenLabs TTS/STT)
+            ("voice", "speak"): lambda a: module.speak(a.get("text", ""),
+                                                       a.get("voice_id"),
+                                                       a.get("path")),
+            ("voice", "transcribe"): lambda a: module.transcribe(a["path"]),
         }
         key = (action.tool, action.action)
         if key not in dispatch:
@@ -202,10 +210,13 @@ class JarvisAgent:
             "word": WordModule(self.settings, dry_run_override=mode),
             "powerpoint": PowerPointModule(self.settings, dry_run_override=mode),
             "excel": ExcelModule(self.settings, dry_run_override=mode),
+            "voice": VoiceModule(self.settings, dry_run_override=mode),
         }
         self.brain: CognitiveEngine = build_brain(self.settings)
         self.executor = ActionExecutor(self.modules)
         self.skills: dict[str, Skill] = {}
+        self.memory = MemoryStore.from_settings(self.settings)   # step 5
+        self.profile = OperatorProfile.load(self.settings)       # step 4
         self._last_soup: Any = None
 
     # ── state tracing ────────────────────────────────────────────────────
@@ -248,6 +259,7 @@ class JarvisAgent:
             quit_fn = getattr(module, "quit", None)
             if callable(quit_fn):
                 quit_fn()
+        self.memory.close()
         self.sm.transition(S.TERMINATED, note="session complete")
         log.info("J.A.R.V.I.S. terminated")
 
@@ -292,7 +304,12 @@ class JarvisAgent:
 
                 # 2 ── REASON ─────────────────────────────────────────
                 self.sm.transition(S.REASONING, note=f"brain={self.brain.name}")
-                plan = self.brain.decide(perception.to_dict(), skill.mission)
+                payload = perception.to_dict()
+                # steps 4 + 5: identity and long-term memory ride along
+                payload.setdefault("operator", self.profile.as_dict())
+                payload.setdefault("memory_context",
+                                   self.memory.context_snippets())
+                plan = self.brain.decide(payload, skill.mission)
                 log.info("plan (%d actions): %s", len(plan.actions), plan.summary)
                 result.rationale, result.brain = plan.rationale, plan.brain
 
@@ -337,6 +354,16 @@ class JarvisAgent:
 
         result.elapsed_s = round(time.monotonic() - started, 2)
         result.state_trace = list(self.trace)
+        # step 5: every mission joins long-term memory (few-shot context later)
+        try:
+            self.memory.record(
+                skill=skill.name, mission=skill.mission,
+                success=result.success, summary=result.summary,
+                brain=result.brain, actions=result.actions_executed,
+                elapsed_s=result.elapsed_s,
+            )
+        except Exception:  # pragma: no cover - memory must never break a run
+            log.exception("memory record failed")
         log.info("skill %s finished: %s (%.2fs, %d attempt(s))",
                  skill.name, "SUCCESS" if result.success else "FAILURE",
                  result.elapsed_s, result.attempts)

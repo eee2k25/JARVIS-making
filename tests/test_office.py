@@ -90,7 +90,7 @@ class TestWordSkillCycle(unittest.TestCase):
 
     def _settings(self):
         # no API key -> OfflineBrain; zero retries -> fast, deterministic
-        return Settings(llm_api_key="", max_retries=0)
+        return Settings(llm_api_key="", max_retries=0, memory_db=":memory:")
 
     def test_offline_brain_realizes_word_blueprint(self):
         plan = OfflineBrain().decide({
@@ -220,7 +220,7 @@ class TestPowerPointModule(unittest.TestCase):
 
 class TestPowerPointSkillCycle(unittest.TestCase):
     def _settings(self):
-        return Settings(llm_api_key="", max_retries=0)
+        return Settings(llm_api_key="", max_retries=0, memory_db=":memory:")
 
     def test_offline_brain_realizes_deck_blueprint(self):
         plan = OfflineBrain().decide({
@@ -338,7 +338,7 @@ class TestExcelModule(unittest.TestCase):
 
 class TestExcelSkillCycle(unittest.TestCase):
     def _settings(self):
-        return Settings(llm_api_key="", max_retries=0)
+        return Settings(llm_api_key="", max_retries=0, memory_db=":memory:")
 
     def test_offline_brain_realizes_grid_blueprint(self):
         plan = OfflineBrain().decide({
