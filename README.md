@@ -63,14 +63,13 @@ not wished:
 | 3 | **Pick the brain** | `cognition/llm.py` — any OpenAI-compatible model (Claude via OpenRouter, Gemini, Grok, Ollama…) swapped via env; `OfflineBrain` keeps the loop alive without one |
 | 4 | **Teach it who I am** | `jarvis/profile.py` + `assets/profile/operator.md` — your work, goals, preferences and boundaries injected into every LLM decision |
 | 5 | **Long-term memory** | `jarvis/memory.py` — SQLite mission history (`logs/memory/jarvis.db`) fed back as few-shot context; remembers across sessions |
-| 6 | **Add skills** | `jarvis/skills/` — `WebReconSkill`, `WordSkill`, `PowerPointSkill`, `ExcelSkill`, `ConverseSkill`; write your own against the 2-method contract |
-| 7 | **Connect tools** | `jarvis/modules/` — browser, parser, GUI, and the full MS Office suite (Word/PowerPoint/Excel) |
-| 8 | **Channels + voice** | `python main.py chat` is the first channel; `jarvis/modules/voice.py` gives it an ElevenLabs voice (TTS `speak` + Scribe `transcribe`) — British accent optional, obviously |
-| 9 | **The Jarvis look** | Still ahead — a designed dashboard wired to the agent's voice |
+| 6 | **Add skills** | `jarvis/skills/` — `WebReconSkill`, `WordSkill`, `PowerPointSkill`, `ExcelSkill`, `ConverseSkill`, `DailyBriefSkill`; write your own against the 2-method contract |
+| 7 | **Connect tools** | `jarvis/modules/` — browser, parser, GUI, the full MS Office suite, **email** (IMAP/SMTP) and **calendar** (iCalendar ICS) |
+| 8 | **Channels + voice** | `chat` channel + **Telegram** and **Slack** bridges; `jarvis/modules/voice.py` gives it an ElevenLabs voice (TTS `speak` + Scribe `transcribe`) — British accent optional, obviously |
+| 9 | **The Jarvis look** | `python main.py dashboard` — a live console: module health, mission memory, chat wired to the real agent loop, and a speak button wired to the voice |
 
-Steps 4, 5 and 8 are the pieces added on top of the Office work: identity,
-memory, and the talk-to-it loop — all shadow-safe without API keys and
-instantly real once you plug yours in.
+Every one of the nine steps is now wired, not wished: pieces without credentials
+run in dry-run shadow mode and light up the moment their key lands in `.env`.
 
 ---
 
@@ -220,6 +219,8 @@ python main.py excel                          # MS Excel cycle -> .xlsx workbook
 python main.py office-demo                    # Word -> PowerPoint -> Excel, one by one
 python main.py chat                           # talk to it (identity + memory + voice)
 python main.py voice-test "At your service."  # synthesize a line (shadow w/o key)
+python main.py brief                          # daily brief: calendar + inbox + memory
+python main.py dashboard                      # the Jarvis console (status/chat/voice)
 python main.py demo --dry-run                 # force shadow mode everywhere
 ```
 
@@ -290,7 +291,8 @@ with JarvisAgent() as agent:
 ## Project layout
 
 ```
-├── main.py                     # CLI: doctor | demo | scrape | browse | gui-test | word | powerpoint | excel | office-demo | chat | voice-test
+├── main.py                     # CLI: doctor | demo | scrape | browse | gui-test | word | powerpoint | excel
+│                               #       | office-demo | chat | voice-test | brief | dashboard
 ├── jarvis/
 │   ├── config.py               # env-driven settings (.env supported)
 │   ├── state_machine.py        # FSM: transition table, listeners, backoff
@@ -300,16 +302,20 @@ with JarvisAgent() as agent:
 │   ├── fixtures.py             # offline localhost fixture server
 │   ├── profile.py              # operator identity (step 4 of the map)
 │   ├── memory.py               # SQLite long-term mission memory (step 5)
+│   ├── dashboard.py            # the Jarvis console — status/chat/voice UI (step 9)
 │   ├── modules/                # gui (PyAutoGUI) | parser (bs4) | browser (Selenium)
 │   │                           # office.py (shared MS Office foundation)
 │   │                           # word.py | powerpoint.py | excel.py (Office engines)
 │   │                           # voice.py (ElevenLabs TTS/STT, shadow-first)
+│   │                           # email_client.py (IMAP/SMTP) | calendar.py (ICS)
+│   │                           # telegram.py | slack.py (channel bridges)
 │   ├── cognition/llm.py        # LLMBrain (OpenAI-compatible) + OfflineBrain
-│   └── skills/                 # base + WebRecon + office missions + ConverseSkill
+│   └── skills/                 # base + WebRecon + office + Converse + DailyBrief
 ├── assets/
 │   ├── fixtures/               # bundled pages for offline demos/tests
 │   └── profile/operator.md     # who JARVIS works for + how they like things
-└── tests/                      # FSM + parser + Office + profile/memory/voice tests
+└── tests/                      # FSM + parser + Office + profile/memory/voice
+│                               # + tools/channels/dashboard unit tests
 ```
 
 ## Roadmap
@@ -317,9 +323,11 @@ with JarvisAgent() as agent:
 - [x] MS Office automation — Word, PowerPoint & Excel modules + skills (file engines everywhere, COM app engines on Windows)
 - [x] Voice I/O front-end — ElevenLabs TTS/STT module + `chat` channel (mic capture pending)
 - [x] Memory layer — SQLite mission history for few-shot LLM context (`jarvis/memory.py`)
+- [x] Connected tools — email (IMAP/SMTP) + calendar (ICS) modules
+- [x] Channels — Telegram bot + Slack webhook bridges
+- [x] The Jarvis look — live console: status, memory, chat + voice (`python main.py dashboard`)
 - [ ] Identity → proactive behavior (profile-driven goals, not just context)
-- [ ] Channels: Slack / Telegram bridges (dry-run shadow bridges first)
-- [ ] The Jarvis look: designed dashboard wired to the agent's voice
+- [ ] Inbound channel loops (Telegram long-poll listener as a daemon)
 - [ ] Skill scheduler (cron-like periodic missions)
 - [ ] Vision: screenshot → multimodal LLM → coordinate plans for GUI actions
 - [ ] Sandboxed browser profile with persistent cookie jars

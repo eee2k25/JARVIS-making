@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
@@ -44,7 +45,8 @@ class MemoryStore:
         self.db_path = db_path
         if db_path != ":memory:":
             Path(db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(db_path)
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
         self._conn.execute(_SCHEMA)
         self._conn.commit()
 
@@ -56,23 +58,26 @@ class MemoryStore:
     def record(self, skill: str, mission: str, success: bool, summary: str,
                brain: str = "", actions: list[dict] | None = None,
                elapsed_s: float = 0.0) -> int:
-        cur = self._conn.execute(
-            "INSERT INTO missions (ts, skill, mission, success, summary, "
-            "brain, actions, elapsed_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (time.time(), skill, mission, int(bool(success)), summary,
-             brain, json.dumps(actions or [], default=str), float(elapsed_s)),
-        )
-        self._conn.commit()
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO missions (ts, skill, mission, success, summary, "
+                "brain, actions, elapsed_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (time.time(), skill, mission, int(bool(success)), summary,
+                 brain, json.dumps(actions or [], default=str),
+                 float(elapsed_s)),
+            )
+            self._conn.commit()
         log.info("memory recorded: %s %s — %s", skill,
                  "SUCCESS" if success else "FAILURE", summary[:80])
         return int(cur.lastrowid or 0)
 
     # ── reading ──────────────────────────────────────────────────────────
     def recent(self, limit: int = 5) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT ts, skill, mission, success, summary, brain, actions, "
-            "elapsed_s FROM missions ORDER BY id DESC LIMIT ?", (limit,)
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT ts, skill, mission, success, summary, brain, actions, "
+                "elapsed_s FROM missions ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [
             {"ts": r[0], "skill": r[1], "mission": r[2], "success": bool(r[3]),
              "summary": r[4], "brain": r[5],
@@ -91,13 +96,15 @@ class MemoryStore:
         return snippets
 
     def count(self) -> int:
-        return int(self._conn.execute("SELECT COUNT(*) FROM missions")
-                   .fetchone()[0])
+        with self._lock:
+            return int(self._conn.execute("SELECT COUNT(*) FROM missions")
+                       .fetchone()[0])
 
     def stats(self) -> dict:
-        row = self._conn.execute(
-            "SELECT COUNT(*), COALESCE(SUM(success), 0) FROM missions"
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(success), 0) FROM missions"
+            ).fetchone()
         total, wins = int(row[0]), int(row[1])
         return {"missions": total, "successes": wins,
                 "failures": total - wins, "db": self.db_path}

@@ -29,6 +29,10 @@ ACTION_REGISTRY: dict[str, set[str]] = {
     "powerpoint": {"create", "open", "read", "add_slide", "add_image", "save",
                    "export_pdf", "launch"},
     "voice": {"speak", "transcribe"},
+    "email": {"inbox", "search", "read", "send"},
+    "calendar": {"create", "open", "events", "upcoming", "add_event", "save"},
+    "telegram": {"send", "updates"},
+    "slack": {"send"},
     "system": {"report", "sleep"},
 }
 
@@ -85,11 +89,17 @@ Allowed actions:
   excel:      create, open, read, write, append_rows, set_formula, format, add_chart, save, export_pdf, launch
   powerpoint: create, open, read, add_slide, add_image, save, export_pdf, launch
   voice:      speak, transcribe
+  email:      inbox, search, read, send
+  calendar:   create, open, events, upcoming, add_event, save
+  telegram:   send, updates
+  slack:      send
   system:     report, sleep
 Rules:
  - If the mission is informational, plan system.report with your findings in args.summary.
  - For conversational perception (source='chat'), plan system.report whose args.summary
    IS your reply to the operator, then voice.speak with the same text.
+ - For briefing perception (source='briefing'), plan system.report with the composed
+   daily brief, then voice.speak and optionally telegram.send/slack.send to deliver it.
  - Prefer browser/parser over gui whenever a URL is involved.
  - For .docx / .pptx / .xlsx targets use the word / powerpoint / excel tools on the
    perception 'target' path (create/open first, then edit verbs, then save).
@@ -190,6 +200,8 @@ class OfflineBrain(CognitiveEngine):
         source = perception.get("source", "")
         if source == "chat":
             return self._chat_plan(perception, mission)
+        if source == "briefing":
+            return self._briefing_plan(perception, mission)
         if source in ("word", "excel", "powerpoint"):
             return self._office_plan(source, perception, mission)
 
@@ -252,6 +264,41 @@ class OfflineBrain(CognitiveEngine):
                        reason="deliver the reply to the operator"),
                 Action("voice", "speak", {"text": reply},
                        reason="speak the reply (shadowed without a voice key)"),
+            ],
+            brain=self.name,
+        )
+
+    # ── daily-brief heuristic (calendar + email + memory) ────────────────
+    def _briefing_plan(self, perception: dict, mission: str) -> Plan:
+        operator = perception.get("operator") or {}
+        name = operator.get("name", "Operator")
+        stats = perception.get("stats") or {}
+        events = perception.get("calendar") or []
+        messages = perception.get("inbox") or []
+        memories = perception.get("memory_context") or []
+
+        head_lines = [f"{name}, your daily brief:"]
+        if events:
+            head_lines.append("Agenda — " + "; ".join(
+                f"{e.get('title', '?')} at {str(e.get('start', ''))[11:16] or 'TBD'}"
+                for e in events[:5]))
+        if messages:
+            head_lines.append("Inbox — " + "; ".join(
+                f"\"{m.get('subject') or '(no subject)'}\" from "
+                f"{(m.get('from') or '?').split('<')[0].strip()}"
+                for m in messages[:5]))
+        head_lines.append(f"Memory holds {len(memories)} mission fragment(s).")
+        reply = "\n".join(head_lines)
+
+        return Plan(
+            rationale=("Offline heuristic: compose the brief from perceived "
+                       "calendar/inbox/memory data and deliver it."),
+            summary=f"offline daily brief for {name}",
+            actions=[
+                Action("system", "report", {"summary": reply},
+                       reason="deliver the brief to the operator"),
+                Action("voice", "speak", {"text": reply.replace(chr(10), ". ")},
+                       reason="read the brief aloud (shadowed without a key)"),
             ],
             brain=self.name,
         )

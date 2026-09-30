@@ -19,10 +19,14 @@ from .logging_setup import get_logger, setup_logging
 from .memory import MemoryStore
 from .modules.base import AutomationModule
 from .modules.browser import BrowserModule
+from .modules.calendar import CalendarModule
+from .modules.email_client import EmailModule
 from .modules.excel import ExcelModule
 from .modules.gui import GuiModule
 from .modules.parser import ParserModule
 from .modules.powerpoint import PowerPointModule
+from .modules.slack import SlackModule
+from .modules.telegram import TelegramModule
 from .modules.voice import VoiceModule
 from .modules.word import WordModule
 from .profile import OperatorProfile
@@ -151,6 +155,30 @@ class ActionExecutor:
                                                        a.get("voice_id"),
                                                        a.get("path")),
             ("voice", "transcribe"): lambda a: module.transcribe(a["path"]),
+            # email (IMAP/SMTP)
+            ("email", "inbox"): lambda a: module.inbox(a.get("limit", 10)),
+            ("email", "search"): lambda a: module.search(a["query"],
+                                                         a.get("limit", 10)),
+            ("email", "read"): lambda a: module.read(str(a["uid"])),
+            ("email", "send"): lambda a: module.send(a["to"], a.get("subject", ""),
+                                                     a.get("body", "")),
+            # calendar (ICS)
+            ("calendar", "create"): lambda a: module.create(a.get("path")),
+            ("calendar", "open"): lambda a: module.open(a["path"]),
+            ("calendar", "events"): lambda a: module.events(a.get("start"),
+                                                            a.get("end")),
+            ("calendar", "upcoming"): lambda a: module.upcoming(
+                a.get("days", 7)),
+            ("calendar", "add_event"): lambda a: module.add_event(
+                a["title"], a["start"], a.get("end"), a.get("location", ""),
+                a.get("notes", "")),
+            ("calendar", "save"): lambda a: module.save(a.get("path")),
+            # channels
+            ("telegram", "send"): lambda a: module.send(a.get("text", "")),
+            ("telegram", "updates"): lambda a: module.updates(
+                a.get("offset", 0), a.get("limit", 10)),
+            ("slack", "send"): lambda a: module.send(a.get("text", ""),
+                                                     a.get("channel")),
         }
         key = (action.tool, action.action)
         if key not in dispatch:
@@ -211,6 +239,10 @@ class JarvisAgent:
             "powerpoint": PowerPointModule(self.settings, dry_run_override=mode),
             "excel": ExcelModule(self.settings, dry_run_override=mode),
             "voice": VoiceModule(self.settings, dry_run_override=mode),
+            "email": EmailModule(self.settings, dry_run_override=mode),
+            "calendar": CalendarModule(self.settings, dry_run_override=mode),
+            "telegram": TelegramModule(self.settings, dry_run_override=mode),
+            "slack": SlackModule(self.settings, dry_run_override=mode),
         }
         self.brain: CognitiveEngine = build_brain(self.settings)
         self.executor = ActionExecutor(self.modules)

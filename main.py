@@ -13,6 +13,8 @@ Usage:
     python main.py office-demo         # Word -> PowerPoint -> Excel, one by one
     python main.py chat [file]         # talk to JARVIS (identity + memory + voice)
     python main.py voice-test [text]   # speak via ElevenLabs (shadow without key)
+    python main.py brief               # daily brief: calendar + inbox + memory
+    python main.py dashboard           # the Jarvis console (step 9: the look)
     python main.py run <skill> --url X # run a registered skill
 """
 
@@ -28,6 +30,7 @@ from jarvis.config import Settings
 from jarvis.fixtures import FixtureServer
 from jarvis.logging_setup import get_logger
 from jarvis.profile import OperatorProfile
+from jarvis.skills.briefing import DailyBriefSkill
 from jarvis.skills.conversation import ConverseSkill
 from jarvis.skills.office import ExcelSkill, PowerPointSkill, WordSkill
 from jarvis.skills.recon import WebReconSkill
@@ -315,6 +318,35 @@ def cmd_voice_test(args: argparse.Namespace) -> int:
         return 0 if res else 1
 
 
+def cmd_brief(args: argparse.Namespace) -> int:
+    """Daily brief: calendar + inbox + memory, composed by the brain."""
+    settings = Settings.load()
+    with JarvisAgent(settings, dry_run=args.dry_run) as agent:
+        agent.register(DailyBriefSkill(days=args.days))
+        result = agent.run("daily_brief")
+        reply = next((a.get("reported") for a in result.actions_executed
+                      if a.get("reported")), result.summary)
+        print(f"\n  daily brief:\n{reply}\n")
+        return 0 if result.success else 1
+
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Serve the Jarvis console (step 9: the look) wired to the live agent."""
+    from jarvis.dashboard import DashboardServer
+
+    server = DashboardServer(Settings.load(), dry_run=args.dry_run,
+                             host=args.host, port=args.port).start()
+    print(f"\n  J.A.R.V.I.S. console live at {server.url} — Ctrl+C to stop\n")
+    try:
+        import threading
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        print("\n  [jarvis] console shutting down")
+    finally:
+        server.stop()
+    return 0
+
+
 # ── wiring ───────────────────────────────────────────────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jarvis",
@@ -366,6 +398,18 @@ def build_parser() -> argparse.ArgumentParser:
     vt = sub.add_parser("voice-test", help="speak a line via the voice engine")
     vt.add_argument("text", nargs="?", default="At your service.")
     vt.set_defaults(fn=cmd_voice_test)
+
+    br = sub.add_parser("brief", help="daily brief: calendar + inbox + memory")
+    br.add_argument("--days", type=int, default=7,
+                    help="calendar lookahead in days (default 7)")
+    br.set_defaults(fn=cmd_brief)
+
+    db = sub.add_parser("dashboard",
+                        help="serve the Jarvis console (status/chat/voice UI)")
+    db.add_argument("--host", default=None, help="bind host (default 0.0.0.0)")
+    db.add_argument("--port", type=int, default=None,
+                    help="bind port (default 8787)")
+    db.set_defaults(fn=cmd_dashboard)
     return p
 
 

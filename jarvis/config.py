@@ -77,6 +77,24 @@ class Settings:
     voice_output_dir: str = field(default_factory=lambda: _env(
         "JARVIS_VOICE_OUTPUT_DIR", "logs/voice"))
 
+    # --- Email tool (step 7: IMAP/SMTP) ---
+    email_address: str = field(default_factory=lambda: _env("JARVIS_EMAIL_ADDRESS"))
+    email_password: str = field(default_factory=lambda: _env("JARVIS_EMAIL_PASSWORD"))
+    email_imap_host: str = field(default_factory=lambda: _env("JARVIS_EMAIL_IMAP_HOST"))
+    email_imap_port: int = field(default_factory=lambda: int(_env("JARVIS_EMAIL_IMAP_PORT", "993")))
+    email_smtp_host: str = field(default_factory=lambda: _env("JARVIS_EMAIL_SMTP_HOST"))
+    email_smtp_port: int = field(default_factory=lambda: int(_env("JARVIS_EMAIL_SMTP_PORT", "587")))
+    email_mailbox: str = field(default_factory=lambda: _env("JARVIS_EMAIL_MAILBOX", "INBOX"))
+
+    # --- Channels (step 8: Telegram / Slack) ---
+    telegram_bot_token: str = field(default_factory=lambda: _env("JARVIS_TELEGRAM_BOT_TOKEN"))
+    telegram_chat_id: str = field(default_factory=lambda: _env("JARVIS_TELEGRAM_CHAT_ID"))
+    slack_webhook_url: str = field(default_factory=lambda: _env("JARVIS_SLACK_WEBHOOK_URL"))
+
+    # --- Dashboard (step 9: the Jarvis look) ---
+    dashboard_host: str = field(default_factory=lambda: _env("JARVIS_DASHBOARD_HOST", "0.0.0.0"))
+    dashboard_port: int = field(default_factory=lambda: int(_env("JARVIS_DASHBOARD_PORT", "8787")))
+
     @property
     def force_dry_run(self) -> bool:
         """true/false explicit; 'auto' lets each module decide by capability."""
