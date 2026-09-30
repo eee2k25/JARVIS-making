@@ -22,6 +22,17 @@ ACTION_REGISTRY: dict[str, set[str]] = {
     "browser": {"open", "click", "type", "submit", "scroll", "wait",
                 "js", "screenshot", "save_cookies", "load_cookies"},
     "parser": {"get", "extract"},
+    "word": {"create", "open", "read", "add_heading", "add_text", "add_table",
+             "replace", "save", "export_pdf", "launch"},
+    "excel": {"create", "open", "read", "write", "append_rows", "set_formula",
+              "format", "add_chart", "save", "export_pdf", "launch"},
+    "powerpoint": {"create", "open", "read", "add_slide", "add_image", "save",
+                   "export_pdf", "launch"},
+    "voice": {"speak", "transcribe"},
+    "email": {"inbox", "search", "read", "send"},
+    "calendar": {"create", "open", "events", "upcoming", "add_event", "save"},
+    "telegram": {"send", "updates"},
+    "slack": {"send"},
     "system": {"report", "sleep"},
 }
 
@@ -67,17 +78,33 @@ Respond with STRICT JSON only — no markdown fences, no prose:
   "rationale": "why this plan",
   "summary": "one-sentence brief for the human",
   "actions": [
-    {"tool": "gui|browser|parser|system", "action": "<verb>", "args": {...}, "reason": "why"}
+    {"tool": "gui|browser|parser|word|excel|powerpoint|system", "action": "<verb>", "args": {...}, "reason": "why"}
   ]
 }
 Allowed actions:
-  gui:     move, click, double_click, right_click, type, hotkey, press, scroll, screenshot, locate
-  browser: open, click, type, submit, scroll, wait, js, screenshot, save_cookies, load_cookies
-  parser:  get, extract
-  system:  report, sleep
+  gui:        move, click, double_click, right_click, type, hotkey, press, scroll, screenshot, locate
+  browser:    open, click, type, submit, scroll, wait, js, screenshot, save_cookies, load_cookies
+  parser:     get, extract
+  word:       create, open, read, add_heading, add_text, add_table, replace, save, export_pdf, launch
+  excel:      create, open, read, write, append_rows, set_formula, format, add_chart, save, export_pdf, launch
+  powerpoint: create, open, read, add_slide, add_image, save, export_pdf, launch
+  voice:      speak, transcribe
+  email:      inbox, search, read, send
+  calendar:   create, open, events, upcoming, add_event, save
+  telegram:   send, updates
+  slack:      send
+  system:     report, sleep
 Rules:
  - If the mission is informational, plan system.report with your findings in args.summary.
+ - For conversational perception (source='chat'), plan system.report whose args.summary
+   IS your reply to the operator, then voice.speak with the same text.
+ - For briefing perception (source='briefing'), plan system.report with the composed
+   daily brief, then voice.speak and optionally telegram.send/slack.send to deliver it.
  - Prefer browser/parser over gui whenever a URL is involved.
+ - For .docx / .pptx / .xlsx targets use the word / powerpoint / excel tools on the
+   perception 'target' path (create/open first, then edit verbs, then save).
+ - word/excel/powerpoint export_pdf and launch drive the real MS Office apps via COM:
+   only plan them when the mission needs the desktop app; they dry-run elsewhere.
  - Keep plans minimal (<= 6 actions), deterministic and reversible.
  - If perception already answers the mission, return zero actions and say so in summary.
 """
@@ -89,6 +116,16 @@ class LLMBrain(CognitiveEngine):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.name = f"llm:{settings.llm_model}"
+        # step 4: the operator's identity rides along on every decision
+        from ..profile import OperatorProfile
+
+        self.profile = OperatorProfile.load(settings)
+        self.system_prompt = SYSTEM_PROMPT
+        if self.profile.text.strip():
+            self.system_prompt += (
+                f"\n\nOPERATOR PROFILE (who you work for, how they like "
+                f"things done):\n{self.profile.text[:2000]}"
+            )
 
     # ── REST plumbing ────────────────────────────────────────────────────
     def _chat(self, messages: list[dict]) -> str:
@@ -131,7 +168,7 @@ class LLMBrain(CognitiveEngine):
         )
         try:
             raw = self._chat([
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_msg},
             ])
             data = self._extract_json(raw)
@@ -160,6 +197,14 @@ class OfflineBrain(CognitiveEngine):
     name = "offline-heuristic"
 
     def decide(self, perception: dict, mission: str) -> Plan:
+        source = perception.get("source", "")
+        if source == "chat":
+            return self._chat_plan(perception, mission)
+        if source == "briefing":
+            return self._briefing_plan(perception, mission)
+        if source in ("word", "excel", "powerpoint"):
+            return self._office_plan(source, perception, mission)
+
         actions: list[Action] = []
         stats = perception.get("stats", {})
         summary_bits = [f"{k}={v}" for k, v in stats.items()]
@@ -198,6 +243,177 @@ class OfflineBrain(CognitiveEngine):
             actions=actions,
             brain=self.name,
         )
+
+    # ── conversational heuristic (the chat channel) ──────────────────────
+    def _chat_plan(self, perception: dict, mission: str) -> Plan:
+        utterance = str(perception.get("utterance", ""))
+        operator = perception.get("operator") or {}
+        memories = perception.get("memory_context") or []
+        name = operator.get("name", "Operator")
+        reply = (f"{name}, you said: \"{utterance[:120]}\". "
+                 f"I hold {len(memories)} mission memory fragment(s) "
+                 f"and I am at your service.")
+        return Plan(
+            rationale=(
+                "Offline heuristic: deterministic acknowledgement reply with "
+                "identity + memory awareness (no LLM endpoint configured)."
+            ),
+            summary=f"offline chat reply to {name}",
+            actions=[
+                Action("system", "report", {"summary": reply},
+                       reason="deliver the reply to the operator"),
+                Action("voice", "speak", {"text": reply},
+                       reason="speak the reply (shadowed without a voice key)"),
+            ],
+            brain=self.name,
+        )
+
+    # ── daily-brief heuristic (calendar + email + memory) ────────────────
+    def _briefing_plan(self, perception: dict, mission: str) -> Plan:
+        operator = perception.get("operator") or {}
+        name = operator.get("name", "Operator")
+        stats = perception.get("stats") or {}
+        events = perception.get("calendar") or []
+        messages = perception.get("inbox") or []
+        memories = perception.get("memory_context") or []
+
+        head_lines = [f"{name}, your daily brief:"]
+        if events:
+            head_lines.append("Agenda — " + "; ".join(
+                f"{e.get('title', '?')} at {str(e.get('start', ''))[11:16] or 'TBD'}"
+                for e in events[:5]))
+        if messages:
+            head_lines.append("Inbox — " + "; ".join(
+                f"\"{m.get('subject') or '(no subject)'}\" from "
+                f"{(m.get('from') or '?').split('<')[0].strip()}"
+                for m in messages[:5]))
+        head_lines.append(f"Memory holds {len(memories)} mission fragment(s).")
+        reply = "\n".join(head_lines)
+
+        return Plan(
+            rationale=("Offline heuristic: compose the brief from perceived "
+                       "calendar/inbox/memory data and deliver it."),
+            summary=f"offline daily brief for {name}",
+            actions=[
+                Action("system", "report", {"summary": reply},
+                       reason="deliver the brief to the operator"),
+                Action("voice", "speak", {"text": reply.replace(chr(10), ". ")},
+                       reason="read the brief aloud (shadowed without a key)"),
+            ],
+            brain=self.name,
+        )
+
+    # ── office heuristics (Word / PowerPoint / Excel) ────────────────────
+    def _office_plan(self, source: str, perception: dict, mission: str) -> Plan:
+        """Report the document inventory and realize the skill's blueprint."""
+        target = str(perception.get("target") or perception.get("url") or "")
+        blueprint = perception.get("blueprint") or {}
+        stats = perception.get("stats") or {}
+        exists = (perception.get("inventory") or {}).get("exists", False)
+        summary_bits = [f"{k}={v}" for k, v in stats.items()]
+
+        actions: list[Action] = [Action(
+            tool="system", action="report",
+            args={"summary": f"{mission} | {source} inventory: "
+                             f"{', '.join(summary_bits) or 'empty'}"},
+            reason="compile the document inventory into a human-readable brief",
+        )]
+        if blueprint:
+            actions.extend(self._realize_blueprint(source, target, blueprint,
+                                                   exists))
+        elif target:
+            actions.append(Action(
+                tool=source, action="open", args={"path": target},
+                reason="load the document for inspection",
+            ))
+            actions.append(Action(
+                tool=source, action="read", args={},
+                reason="re-read the structure as act-phase evidence",
+            ))
+
+        return Plan(
+            rationale=(
+                "Offline heuristic: office blueprint realized with "
+                f"deterministic {source} actions (no LLM endpoint configured)."
+            ),
+            summary=f"offline plan: {len(actions)} {source}/system action(s) "
+                    f"for {target or '(unnamed document)'}",
+            actions=actions,
+            brain=self.name,
+        )
+
+    @staticmethod
+    def _realize_blueprint(source: str, target: str, blueprint: dict,
+                           exists: bool) -> list[Action]:
+        """Translate a skill blueprint into ordered office edit actions.
+
+        Word/PowerPoint blueprints append to existing documents (open) and
+        generate missing ones (create). Excel blueprints describe the whole
+        sheet, so the workbook is rebuilt (create) to avoid stale rows.
+        """
+        acts: list[Action] = []
+
+        if source == "word":
+            verb = "open" if exists else "create"
+            args = {"path": target} if exists else {"path": target,
+                                                   "title": blueprint.get("title")}
+            acts.append(Action("word", verb, args,
+                               reason="prepare the report document"))
+            if blueprint.get("title"):
+                acts.append(Action("word", "add_heading",
+                                   {"text": blueprint["title"], "level": 1},
+                                   reason="render the report title"))
+            for para in blueprint.get("paragraphs", []):
+                acts.append(Action("word", "add_text", {"text": para},
+                                   reason="write report body text"))
+            if blueprint.get("table"):
+                acts.append(Action("word", "add_table",
+                                   {"rows": blueprint["table"]},
+                                   reason="attach the summary table"))
+            acts.append(Action("word", "save", {"path": target},
+                               reason="persist the document to disk"))
+
+        elif source == "powerpoint":
+            verb = "open" if exists else "create"
+            args = {"path": target} if exists else {"path": target,
+                                                   "title": blueprint.get("title")}
+            acts.append(Action("powerpoint", verb, args,
+                               reason="prepare the briefing deck"))
+            for slide in blueprint.get("slides", []):
+                acts.append(Action("powerpoint", "add_slide", {
+                    "title": slide.get("title", ""),
+                    "bullets": slide.get("bullets", []),
+                    "notes": slide.get("notes"),
+                }, reason="add a briefing slide"))
+            acts.append(Action("powerpoint", "save", {"path": target},
+                               reason="persist the deck to disk"))
+
+        elif source == "excel":
+            acts.append(Action("excel", "create", {
+                "path": target,
+                "title": blueprint.get("title"),
+                "sheet": blueprint.get("sheet"),
+            }, reason="rebuild the workbook from the blueprint"))
+            block = ([blueprint["headers"]] if blueprint.get("headers") else [])
+            block = block + list(blueprint.get("rows") or [])
+            if block:
+                acts.append(Action("excel", "write",
+                                   {"start": "A1", "rows": block},
+                                   reason="lay down the data grid"))
+            for cell, formula in (blueprint.get("formulas") or {}).items():
+                acts.append(Action("excel", "set_formula",
+                                   {"cell": cell, "formula": formula},
+                                   reason=f"compute {cell}"))
+            if blueprint.get("format"):
+                acts.append(Action("excel", "format", blueprint["format"],
+                                   reason="apply spreadsheet formatting"))
+            if blueprint.get("chart"):
+                acts.append(Action("excel", "add_chart", blueprint["chart"],
+                                   reason="attach a chart"))
+            acts.append(Action("excel", "save", {"path": target},
+                               reason="persist the workbook to disk"))
+
+        return acts
 
 
 def build_brain(settings: Settings) -> CognitiveEngine:

@@ -16,10 +16,20 @@ from .config import Settings
 from .exceptions import (ActionError, JarvisError, ReasoningError,
                          SkillNotFoundError)
 from .logging_setup import get_logger, setup_logging
+from .memory import MemoryStore
 from .modules.base import AutomationModule
 from .modules.browser import BrowserModule
+from .modules.calendar import CalendarModule
+from .modules.email_client import EmailModule
+from .modules.excel import ExcelModule
 from .modules.gui import GuiModule
 from .modules.parser import ParserModule
+from .modules.powerpoint import PowerPointModule
+from .modules.slack import SlackModule
+from .modules.telegram import TelegramModule
+from .modules.voice import VoiceModule
+from .modules.word import WordModule
+from .profile import OperatorProfile
 from .skills.base import Skill, SkillContext
 from .state_machine import AgentState as S
 from .state_machine import StateMachine
@@ -88,6 +98,87 @@ class ActionExecutor:
             # parser
             ("parser", "get"): lambda a: self._parse_get(module, a),
             ("parser", "extract"): lambda a: self._parse_extract(module, a),
+            # word (MS Word)
+            ("word", "create"): lambda a: module.create(a.get("path"),
+                                                        a.get("title")),
+            ("word", "open"): lambda a: module.open(a["path"]),
+            ("word", "read"): lambda a: module.read(),
+            ("word", "add_heading"): lambda a: module.add_heading(
+                a["text"], a.get("level", 1)),
+            ("word", "add_text"): lambda a: module.add_text(
+                a["text"], a.get("style"), a.get("bold", False)),
+            ("word", "add_table"): lambda a: module.add_table(a["rows"]),
+            ("word", "replace"): lambda a: module.replace(a["find"],
+                                                          a.get("replace", "")),
+            ("word", "save"): lambda a: module.save(a.get("path")),
+            ("word", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
+            ("word", "launch"): lambda a: module.launch(a.get("path")),
+            # powerpoint (MS PowerPoint)
+            ("powerpoint", "create"): lambda a: module.create(a.get("path"),
+                                                              a.get("title")),
+            ("powerpoint", "open"): lambda a: module.open(a["path"]),
+            ("powerpoint", "read"): lambda a: module.read(),
+            ("powerpoint", "add_slide"): lambda a: module.add_slide(
+                a.get("title", ""), a.get("bullets", []), a.get("notes")),
+            ("powerpoint", "add_image"): lambda a: module.add_image(
+                a["path"], a.get("width_in", 8.0)),
+            ("powerpoint", "save"): lambda a: module.save(a.get("path")),
+            ("powerpoint", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
+            ("powerpoint", "launch"): lambda a: module.launch(a.get("path")),
+            # excel (MS Excel)
+            ("excel", "create"): lambda a: module.create(a.get("path"),
+                                                         a.get("title"),
+                                                         a.get("sheet")),
+            ("excel", "open"): lambda a: module.open(a["path"]),
+            ("excel", "read"): lambda a: module.read(a.get("sheet"),
+                                                     a.get("max_rows", 50)),
+            ("excel", "write"): lambda a: module.write(a.get("start", "A1"),
+                                                       a.get("rows", []),
+                                                       a.get("sheet")),
+            ("excel", "append_rows"): lambda a: module.append_rows(
+                a.get("rows", []), a.get("sheet")),
+            ("excel", "set_formula"): lambda a: module.set_formula(
+                a["cell"], a["formula"], a.get("sheet")),
+            ("excel", "format"): lambda a: module.format(
+                a.get("target", "A1"), a.get("bold"), a.get("italic"),
+                a.get("number_format"), a.get("fill"), a.get("col_width"),
+                a.get("sheet")),
+            ("excel", "add_chart"): lambda a: module.add_chart(
+                a.get("kind", "bar"), a.get("title", ""),
+                a.get("data_ref", ""), a.get("cats_ref", ""),
+                a.get("anchor", "F2"), a.get("sheet")),
+            ("excel", "save"): lambda a: module.save(a.get("path")),
+            ("excel", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
+            ("excel", "launch"): lambda a: module.launch(a.get("path")),
+            # voice (ElevenLabs TTS/STT)
+            ("voice", "speak"): lambda a: module.speak(a.get("text", ""),
+                                                       a.get("voice_id"),
+                                                       a.get("path")),
+            ("voice", "transcribe"): lambda a: module.transcribe(a["path"]),
+            # email (IMAP/SMTP)
+            ("email", "inbox"): lambda a: module.inbox(a.get("limit", 10)),
+            ("email", "search"): lambda a: module.search(a["query"],
+                                                         a.get("limit", 10)),
+            ("email", "read"): lambda a: module.read(str(a["uid"])),
+            ("email", "send"): lambda a: module.send(a["to"], a.get("subject", ""),
+                                                     a.get("body", "")),
+            # calendar (ICS)
+            ("calendar", "create"): lambda a: module.create(a.get("path")),
+            ("calendar", "open"): lambda a: module.open(a["path"]),
+            ("calendar", "events"): lambda a: module.events(a.get("start"),
+                                                            a.get("end")),
+            ("calendar", "upcoming"): lambda a: module.upcoming(
+                a.get("days", 7)),
+            ("calendar", "add_event"): lambda a: module.add_event(
+                a["title"], a["start"], a.get("end"), a.get("location", ""),
+                a.get("notes", "")),
+            ("calendar", "save"): lambda a: module.save(a.get("path")),
+            # channels
+            ("telegram", "send"): lambda a: module.send(a.get("text", "")),
+            ("telegram", "updates"): lambda a: module.updates(
+                a.get("offset", 0), a.get("limit", 10)),
+            ("slack", "send"): lambda a: module.send(a.get("text", ""),
+                                                     a.get("channel")),
         }
         key = (action.tool, action.action)
         if key not in dispatch:
@@ -144,10 +235,20 @@ class JarvisAgent:
             "gui": GuiModule(self.settings, dry_run_override=mode),
             "parser": ParserModule(self.settings, dry_run_override=mode),
             "browser": BrowserModule(self.settings, dry_run_override=mode),
+            "word": WordModule(self.settings, dry_run_override=mode),
+            "powerpoint": PowerPointModule(self.settings, dry_run_override=mode),
+            "excel": ExcelModule(self.settings, dry_run_override=mode),
+            "voice": VoiceModule(self.settings, dry_run_override=mode),
+            "email": EmailModule(self.settings, dry_run_override=mode),
+            "calendar": CalendarModule(self.settings, dry_run_override=mode),
+            "telegram": TelegramModule(self.settings, dry_run_override=mode),
+            "slack": SlackModule(self.settings, dry_run_override=mode),
         }
         self.brain: CognitiveEngine = build_brain(self.settings)
         self.executor = ActionExecutor(self.modules)
         self.skills: dict[str, Skill] = {}
+        self.memory = MemoryStore.from_settings(self.settings)   # step 5
+        self.profile = OperatorProfile.load(self.settings)       # step 4
         self._last_soup: Any = None
 
     # ── state tracing ────────────────────────────────────────────────────
@@ -186,7 +287,11 @@ class JarvisAgent:
             bridge = S.BOOTING if self.sm.state is S.OFF else S.ERROR
             self.sm.transition(bridge, note="forced bridge for shutdown")
         self.sm.transition(S.SHUTTING_DOWN, note=reason)
-        self.modules["browser"].quit()
+        for module in self.modules.values():
+            quit_fn = getattr(module, "quit", None)
+            if callable(quit_fn):
+                quit_fn()
+        self.memory.close()
         self.sm.transition(S.TERMINATED, note="session complete")
         log.info("J.A.R.V.I.S. terminated")
 
@@ -231,7 +336,12 @@ class JarvisAgent:
 
                 # 2 ── REASON ─────────────────────────────────────────
                 self.sm.transition(S.REASONING, note=f"brain={self.brain.name}")
-                plan = self.brain.decide(perception.to_dict(), skill.mission)
+                payload = perception.to_dict()
+                # steps 4 + 5: identity and long-term memory ride along
+                payload.setdefault("operator", self.profile.as_dict())
+                payload.setdefault("memory_context",
+                                   self.memory.context_snippets())
+                plan = self.brain.decide(payload, skill.mission)
                 log.info("plan (%d actions): %s", len(plan.actions), plan.summary)
                 result.rationale, result.brain = plan.rationale, plan.brain
 
@@ -276,6 +386,16 @@ class JarvisAgent:
 
         result.elapsed_s = round(time.monotonic() - started, 2)
         result.state_trace = list(self.trace)
+        # step 5: every mission joins long-term memory (few-shot context later)
+        try:
+            self.memory.record(
+                skill=skill.name, mission=skill.mission,
+                success=result.success, summary=result.summary,
+                brain=result.brain, actions=result.actions_executed,
+                elapsed_s=result.elapsed_s,
+            )
+        except Exception:  # pragma: no cover - memory must never break a run
+            log.exception("memory record failed")
         log.info("skill %s finished: %s (%.2fs, %d attempt(s))",
                  skill.name, "SUCCESS" if result.success else "FAILURE",
                  result.elapsed_s, result.attempts)

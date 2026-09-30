@@ -4,6 +4,7 @@ A state-machine driven agent that fuses:
   * PyAutoGUI      — OS-level mouse/keyboard automation
   * BeautifulSoup  — static HTML ingestion & DOM extraction
   * Selenium       — dynamic, JS-rendered browser automation
+  * MS Office      — Word / PowerPoint / Excel document + app automation
   * LLM pipeline   — cognitive decision core (OpenAI-compatible REST)
 """
 
