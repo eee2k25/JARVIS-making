@@ -10,6 +10,7 @@ Usage:
     python main.py word [path]         # MS Word cycle (report blueprint)
     python main.py powerpoint [path]   # MS PowerPoint cycle (briefing blueprint)
     python main.py excel [path]        # MS Excel cycle (power budget blueprint)
+    python main.py office-demo         # Word -> PowerPoint -> Excel, one by one
     python main.py run <skill> --url X # run a registered skill
 """
 
@@ -226,6 +227,37 @@ def cmd_excel(args: argparse.Namespace) -> int:
                        "Excel", args)
 
 
+def cmd_office_demo(args: argparse.Namespace) -> int:
+    """Run the three MS Office missions one by one in a single agent session."""
+    settings = Settings.load()
+    out = settings.office_output_dir
+    missions = [
+        ("MS Word", WordSkill(
+            path=os.path.join(out, "jarvis_report.docx"),
+            blueprint=WORD_BLUEPRINT)),
+        ("MS PowerPoint", PowerPointSkill(
+            path=os.path.join(out, "jarvis_briefing.pptx"),
+            blueprint=POWERPOINT_BLUEPRINT)),
+        ("MS Excel", ExcelSkill(
+            path=os.path.join(out, "jarvis_power_budget.xlsx"),
+            blueprint=EXCEL_BLUEPRINT)),
+    ]
+    print("\n  J.A.R.V.I.S. MS Office demo — Word -> PowerPoint -> Excel\n")
+    failed = 0
+    with JarvisAgent(settings, dry_run=args.dry_run) as agent:
+        for label, skill in missions:
+            print("  " + "─" * 60)
+            print(f"  mission: {label} — target: {skill.path}")
+            agent.register(skill)
+            result = agent.run(skill.name)
+            _print_result(result)
+            if not result.success:
+                failed += 1
+    print(f"  office demo complete: {len(missions) - failed}/{len(missions)}"
+          " mission(s) SUCCESS\n")
+    return 0 if failed == 0 else 1
+
+
 # ── wiring ───────────────────────────────────────────────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jarvis",
@@ -263,6 +295,10 @@ def build_parser() -> argparse.ArgumentParser:
     xl.add_argument("path", nargs="?", default=None,
                     help="target .xlsx (default: <office dir>/jarvis_power_budget.xlsx)")
     xl.set_defaults(fn=cmd_excel)
+
+    sub.add_parser("office-demo",
+                   help="run the Word -> PowerPoint -> Excel missions one by one"
+                   ).set_defaults(fn=cmd_office_demo)
     return p
 
 
