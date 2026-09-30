@@ -153,3 +153,50 @@ class WordSkill(_OfficeSkill):
             return False, f"document body too small ({words} words)"
         return True, (f"document OK (headings={headings}, tables={tables}, "
                       f"words={words})")
+
+
+class PowerPointSkill(_OfficeSkill):
+    """PowerPoint briefing mission: inventory a .pptx, then realize slide blueprints.
+
+    Blueprints are additive for existing decks (open + append slides) and
+    generative for missing ones (create + build + save):
+        {"slides": [{"title": "Intro", "bullets": ["a", "b"], "notes": "..."}]}
+    """
+
+    name = "powerpoint"
+    engine = "powerpoint"
+    mission = ("MS PowerPoint mission: maintain the briefing deck "
+               "per the blueprint.")
+
+    def _empty_inventory(self) -> dict:
+        return {"slide_count": 0, "slides": []}
+
+    def _stats(self, inventory: dict) -> dict:
+        slides = inventory.get("slides", [])
+        return {
+            "exists": inventory.get("exists", False),
+            "slides": inventory.get("slide_count", len(slides)),
+            "bullets": sum(len(s.get("bullets", [])) for s in slides),
+            "with_notes": sum(1 for s in slides if s.get("notes")),
+        }
+
+    def _verify_content(self, ctx, target, blueprint, stats):
+        module = ctx.agent.modules[self.engine]
+        module.open(str(target))
+        inv = module.read()
+        if inv.get("dry_run"):
+            return True, "deck content verified in shadow mode"
+
+        want = len(blueprint.get("slides") or [])
+        have = inv.get("slide_count", 0)
+        if have < want:
+            return False, f"expected >= {want} slide(s), found {have}"
+        titles = [s.get("title", "") for s in inv.get("slides", [])]
+        expected_titles = [s.get("title", "") for s in blueprint["slides"]
+                           if s.get("title")]
+        missing = [t for t in expected_titles if t not in titles]
+        if missing:
+            return False, f"slide title(s) missing: {missing}"
+        bullets = sum(len(s.get("bullets", [])) for s in inv.get("slides", []))
+        return True, (f"deck OK (slides={have}, bullets={bullets}, "
+                      f"titles verified={len(expected_titles)})")

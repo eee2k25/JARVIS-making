@@ -20,6 +20,7 @@ from .modules.base import AutomationModule
 from .modules.browser import BrowserModule
 from .modules.gui import GuiModule
 from .modules.parser import ParserModule
+from .modules.powerpoint import PowerPointModule
 from .modules.word import WordModule
 from .skills.base import Skill, SkillContext
 from .state_machine import AgentState as S
@@ -104,6 +105,18 @@ class ActionExecutor:
             ("word", "save"): lambda a: module.save(a.get("path")),
             ("word", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
             ("word", "launch"): lambda a: module.launch(a.get("path")),
+            # powerpoint (MS PowerPoint)
+            ("powerpoint", "create"): lambda a: module.create(a.get("path"),
+                                                              a.get("title")),
+            ("powerpoint", "open"): lambda a: module.open(a["path"]),
+            ("powerpoint", "read"): lambda a: module.read(),
+            ("powerpoint", "add_slide"): lambda a: module.add_slide(
+                a.get("title", ""), a.get("bullets", []), a.get("notes")),
+            ("powerpoint", "add_image"): lambda a: module.add_image(
+                a["path"], a.get("width_in", 8.0)),
+            ("powerpoint", "save"): lambda a: module.save(a.get("path")),
+            ("powerpoint", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
+            ("powerpoint", "launch"): lambda a: module.launch(a.get("path")),
         }
         key = (action.tool, action.action)
         if key not in dispatch:
@@ -161,6 +174,7 @@ class JarvisAgent:
             "parser": ParserModule(self.settings, dry_run_override=mode),
             "browser": BrowserModule(self.settings, dry_run_override=mode),
             "word": WordModule(self.settings, dry_run_override=mode),
+            "powerpoint": PowerPointModule(self.settings, dry_run_override=mode),
         }
         self.brain: CognitiveEngine = build_brain(self.settings)
         self.executor = ActionExecutor(self.modules)

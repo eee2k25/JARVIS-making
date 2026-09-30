@@ -15,6 +15,7 @@ from pathlib import Path
 from jarvis.cognition.llm import ACTION_REGISTRY, Action, OfflineBrain
 from jarvis.config import Settings
 from jarvis.exceptions import ReasoningError
+from jarvis.modules.powerpoint import PowerPointModule
 from jarvis.modules.word import WordModule
 
 OFFICE_TOOLS = ("word", "excel", "powerpoint")
@@ -171,6 +172,108 @@ class TestWordSkillCycle(unittest.TestCase):
                 ])
             self.assertFalse(ok)
             self.assertIn("missing", note)
+
+
+class TestPowerPointModule(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "briefing.pptx"
+        self.ppt = PowerPointModule(Settings(llm_api_key=""))
+
+    def test_round_trip_deck_build_and_read(self):
+        self.ppt.create(str(self.path), title="Status Briefing")
+        self.ppt.add_slide("Agenda", ["one", "two"], notes="speaker cue")
+        self.ppt.add_slide("Numbers", ["3.1 GW output"])
+        saved = self.ppt.save()
+        self.assertTrue(Path(saved["saved"]).exists())
+        self.assertGreater(saved["bytes"], 1000)
+
+        fresh = PowerPointModule(Settings(llm_api_key=""))
+        fresh.open(str(self.path))
+        inv = fresh.read()
+        self.assertEqual(inv["title"], "Status Briefing")
+        self.assertEqual(inv["slide_count"], 2)
+        self.assertEqual(inv["slides"][0]["title"], "Agenda")
+        self.assertEqual(inv["slides"][0]["bullets"], ["one", "two"])
+        self.assertEqual(inv["slides"][0]["notes"], "speaker cue")
+        self.assertIn("3.1 GW output", inv["slides"][1]["bullets"])
+
+    def test_add_image_requires_existing_slide(self):
+        self.ppt.create(str(self.path))
+        from jarvis.exceptions import ActionError
+
+        with self.assertRaises(ActionError):
+            self.ppt.add_image("nope.png")
+        self.ppt.add_slide("Pic", ["visual"])
+        with self.assertRaises(ActionError):
+            self.ppt.add_image(str(Path(self.tmp.name) / "missing.png"))
+
+    def test_app_engine_verbs_shadow_without_ms_office(self):
+        self.ppt.create(str(self.path))
+        self.ppt.add_slide("S")
+        self.ppt.save()
+        for res in (self.ppt.export_pdf(), self.ppt.launch()):
+            self.assertTrue(res["dry_run"])
+
+
+class TestPowerPointSkillCycle(unittest.TestCase):
+    def _settings(self):
+        return Settings(llm_api_key="", max_retries=0)
+
+    def test_offline_brain_realizes_deck_blueprint(self):
+        plan = OfflineBrain().decide({
+            "source": "powerpoint", "url": "/tmp/x.pptx",
+            "target": "/tmp/x.pptx", "inventory": {"exists": False},
+            "stats": {"slides": 0},
+            "blueprint": {"slides": [{"title": "A", "bullets": ["b1"]}]},
+        }, "build the deck")
+        for action in plan.actions:
+            action.validate()
+        tools = [(a.tool, a.action) for a in plan.actions]
+        self.assertEqual(tools[0], ("system", "report"))
+        self.assertIn(("powerpoint", "add_slide"), tools)
+        self.assertEqual(tools[-1], ("powerpoint", "save"))
+
+    def test_agent_cycle_writes_real_pptx(self):
+        from jarvis import JarvisAgent
+        from jarvis.skills.office import PowerPointSkill
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "cycle.pptx"
+            skill = PowerPointSkill(path=target, blueprint={
+                "slides": [
+                    {"title": "Cycle Title", "bullets": ["a", "b"]},
+                    {"title": "Second Slide", "bullets": ["c"], "notes": "n"},
+                ],
+            })
+            with JarvisAgent(self._settings()) as agent:
+                agent.register(skill)
+                result = agent.run("powerpoint")
+
+            self.assertTrue(result.success, result.summary)
+            self.assertTrue(target.exists())
+            probe = PowerPointModule(self._settings())
+            probe.open(str(target))
+            inv = probe.read()
+            self.assertEqual(inv["slide_count"], 2)
+            self.assertIn("Cycle Title", [s["title"] for s in inv["slides"]])
+
+    def test_agent_cycle_forced_dry_run_touches_nothing(self):
+        from jarvis import JarvisAgent
+        from jarvis.skills.office import PowerPointSkill
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "shadow.pptx"
+            skill = PowerPointSkill(path=target, blueprint={
+                "slides": [{"title": "Shadow"}],
+            })
+            with JarvisAgent(self._settings(), dry_run=True) as agent:
+                agent.register(skill)
+                result = agent.run("powerpoint")
+
+            self.assertTrue(result.success, result.summary)
+            self.assertFalse(target.exists())
 
 
 if __name__ == "__main__":
