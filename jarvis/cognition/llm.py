@@ -22,6 +22,12 @@ ACTION_REGISTRY: dict[str, set[str]] = {
     "browser": {"open", "click", "type", "submit", "scroll", "wait",
                 "js", "screenshot", "save_cookies", "load_cookies"},
     "parser": {"get", "extract"},
+    "word": {"create", "open", "read", "add_heading", "add_text", "add_table",
+             "replace", "save", "export_pdf", "launch"},
+    "excel": {"create", "open", "read", "write", "append_rows", "set_formula",
+              "format", "add_chart", "save", "export_pdf", "launch"},
+    "powerpoint": {"create", "open", "read", "add_slide", "add_image", "save",
+                   "export_pdf", "launch"},
     "system": {"report", "sleep"},
 }
 
@@ -67,17 +73,24 @@ Respond with STRICT JSON only — no markdown fences, no prose:
   "rationale": "why this plan",
   "summary": "one-sentence brief for the human",
   "actions": [
-    {"tool": "gui|browser|parser|system", "action": "<verb>", "args": {...}, "reason": "why"}
+    {"tool": "gui|browser|parser|word|excel|powerpoint|system", "action": "<verb>", "args": {...}, "reason": "why"}
   ]
 }
 Allowed actions:
-  gui:     move, click, double_click, right_click, type, hotkey, press, scroll, screenshot, locate
-  browser: open, click, type, submit, scroll, wait, js, screenshot, save_cookies, load_cookies
-  parser:  get, extract
-  system:  report, sleep
+  gui:        move, click, double_click, right_click, type, hotkey, press, scroll, screenshot, locate
+  browser:    open, click, type, submit, scroll, wait, js, screenshot, save_cookies, load_cookies
+  parser:     get, extract
+  word:       create, open, read, add_heading, add_text, add_table, replace, save, export_pdf, launch
+  excel:      create, open, read, write, append_rows, set_formula, format, add_chart, save, export_pdf, launch
+  powerpoint: create, open, read, add_slide, add_image, save, export_pdf, launch
+  system:     report, sleep
 Rules:
  - If the mission is informational, plan system.report with your findings in args.summary.
  - Prefer browser/parser over gui whenever a URL is involved.
+ - For .docx / .pptx / .xlsx targets use the word / powerpoint / excel tools on the
+   perception 'target' path (create/open first, then edit verbs, then save).
+ - word/excel/powerpoint export_pdf and launch drive the real MS Office apps via COM:
+   only plan them when the mission needs the desktop app; they dry-run elsewhere.
  - Keep plans minimal (<= 6 actions), deterministic and reversible.
  - If perception already answers the mission, return zero actions and say so in summary.
 """
@@ -160,6 +173,10 @@ class OfflineBrain(CognitiveEngine):
     name = "offline-heuristic"
 
     def decide(self, perception: dict, mission: str) -> Plan:
+        source = perception.get("source", "")
+        if source in ("word", "excel", "powerpoint"):
+            return self._office_plan(source, perception, mission)
+
         actions: list[Action] = []
         stats = perception.get("stats", {})
         summary_bits = [f"{k}={v}" for k, v in stats.items()]
@@ -198,6 +215,118 @@ class OfflineBrain(CognitiveEngine):
             actions=actions,
             brain=self.name,
         )
+
+    # ── office heuristics (Word / PowerPoint / Excel) ────────────────────
+    def _office_plan(self, source: str, perception: dict, mission: str) -> Plan:
+        """Report the document inventory and realize the skill's blueprint."""
+        target = str(perception.get("target") or perception.get("url") or "")
+        blueprint = perception.get("blueprint") or {}
+        stats = perception.get("stats") or {}
+        exists = (perception.get("inventory") or {}).get("exists", False)
+        summary_bits = [f"{k}={v}" for k, v in stats.items()]
+
+        actions: list[Action] = [Action(
+            tool="system", action="report",
+            args={"summary": f"{mission} | {source} inventory: "
+                             f"{', '.join(summary_bits) or 'empty'}"},
+            reason="compile the document inventory into a human-readable brief",
+        )]
+        if blueprint:
+            actions.extend(self._realize_blueprint(source, target, blueprint,
+                                                   exists))
+        elif target:
+            actions.append(Action(
+                tool=source, action="open", args={"path": target},
+                reason="load the document for inspection",
+            ))
+            actions.append(Action(
+                tool=source, action="read", args={},
+                reason="re-read the structure as act-phase evidence",
+            ))
+
+        return Plan(
+            rationale=(
+                "Offline heuristic: office blueprint realized with "
+                f"deterministic {source} actions (no LLM endpoint configured)."
+            ),
+            summary=f"offline plan: {len(actions)} {source}/system action(s) "
+                    f"for {target or '(unnamed document)'}",
+            actions=actions,
+            brain=self.name,
+        )
+
+    @staticmethod
+    def _realize_blueprint(source: str, target: str, blueprint: dict,
+                           exists: bool) -> list[Action]:
+        """Translate a skill blueprint into ordered office edit actions.
+
+        Word/PowerPoint blueprints append to existing documents (open) and
+        generate missing ones (create). Excel blueprints describe the whole
+        sheet, so the workbook is rebuilt (create) to avoid stale rows.
+        """
+        acts: list[Action] = []
+
+        if source == "word":
+            verb = "open" if exists else "create"
+            args = {"path": target} if exists else {"path": target,
+                                                   "title": blueprint.get("title")}
+            acts.append(Action("word", verb, args,
+                               reason="prepare the report document"))
+            if blueprint.get("title"):
+                acts.append(Action("word", "add_heading",
+                                   {"text": blueprint["title"], "level": 1},
+                                   reason="render the report title"))
+            for para in blueprint.get("paragraphs", []):
+                acts.append(Action("word", "add_text", {"text": para},
+                                   reason="write report body text"))
+            if blueprint.get("table"):
+                acts.append(Action("word", "add_table",
+                                   {"rows": blueprint["table"]},
+                                   reason="attach the summary table"))
+            acts.append(Action("word", "save", {"path": target},
+                               reason="persist the document to disk"))
+
+        elif source == "powerpoint":
+            verb = "open" if exists else "create"
+            args = {"path": target} if exists else {"path": target,
+                                                   "title": blueprint.get("title")}
+            acts.append(Action("powerpoint", verb, args,
+                               reason="prepare the briefing deck"))
+            for slide in blueprint.get("slides", []):
+                acts.append(Action("powerpoint", "add_slide", {
+                    "title": slide.get("title", ""),
+                    "bullets": slide.get("bullets", []),
+                    "notes": slide.get("notes"),
+                }, reason="add a briefing slide"))
+            acts.append(Action("powerpoint", "save", {"path": target},
+                               reason="persist the deck to disk"))
+
+        elif source == "excel":
+            acts.append(Action("excel", "create", {
+                "path": target,
+                "title": blueprint.get("title"),
+                "sheet": blueprint.get("sheet"),
+            }, reason="rebuild the workbook from the blueprint"))
+            block = ([blueprint["headers"]] if blueprint.get("headers") else [])
+            block = block + list(blueprint.get("rows") or [])
+            if block:
+                acts.append(Action("excel", "write",
+                                   {"start": "A1", "rows": block},
+                                   reason="lay down the data grid"))
+            for cell, formula in (blueprint.get("formulas") or {}).items():
+                acts.append(Action("excel", "set_formula",
+                                   {"cell": cell, "formula": formula},
+                                   reason=f"compute {cell}"))
+            if blueprint.get("format"):
+                acts.append(Action("excel", "format", blueprint["format"],
+                                   reason="apply spreadsheet formatting"))
+            if blueprint.get("chart"):
+                acts.append(Action("excel", "add_chart", blueprint["chart"],
+                                   reason="attach a chart"))
+            acts.append(Action("excel", "save", {"path": target},
+                               reason="persist the workbook to disk"))
+
+        return acts
 
 
 def build_brain(settings: Settings) -> CognitiveEngine:

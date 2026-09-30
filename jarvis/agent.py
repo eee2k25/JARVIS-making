@@ -20,6 +20,7 @@ from .modules.base import AutomationModule
 from .modules.browser import BrowserModule
 from .modules.gui import GuiModule
 from .modules.parser import ParserModule
+from .modules.word import WordModule
 from .skills.base import Skill, SkillContext
 from .state_machine import AgentState as S
 from .state_machine import StateMachine
@@ -88,6 +89,21 @@ class ActionExecutor:
             # parser
             ("parser", "get"): lambda a: self._parse_get(module, a),
             ("parser", "extract"): lambda a: self._parse_extract(module, a),
+            # word (MS Word)
+            ("word", "create"): lambda a: module.create(a.get("path"),
+                                                        a.get("title")),
+            ("word", "open"): lambda a: module.open(a["path"]),
+            ("word", "read"): lambda a: module.read(),
+            ("word", "add_heading"): lambda a: module.add_heading(
+                a["text"], a.get("level", 1)),
+            ("word", "add_text"): lambda a: module.add_text(
+                a["text"], a.get("style"), a.get("bold", False)),
+            ("word", "add_table"): lambda a: module.add_table(a["rows"]),
+            ("word", "replace"): lambda a: module.replace(a["find"],
+                                                          a.get("replace", "")),
+            ("word", "save"): lambda a: module.save(a.get("path")),
+            ("word", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
+            ("word", "launch"): lambda a: module.launch(a.get("path")),
         }
         key = (action.tool, action.action)
         if key not in dispatch:
@@ -144,6 +160,7 @@ class JarvisAgent:
             "gui": GuiModule(self.settings, dry_run_override=mode),
             "parser": ParserModule(self.settings, dry_run_override=mode),
             "browser": BrowserModule(self.settings, dry_run_override=mode),
+            "word": WordModule(self.settings, dry_run_override=mode),
         }
         self.brain: CognitiveEngine = build_brain(self.settings)
         self.executor = ActionExecutor(self.modules)
@@ -186,7 +203,10 @@ class JarvisAgent:
             bridge = S.BOOTING if self.sm.state is S.OFF else S.ERROR
             self.sm.transition(bridge, note="forced bridge for shutdown")
         self.sm.transition(S.SHUTTING_DOWN, note=reason)
-        self.modules["browser"].quit()
+        for module in self.modules.values():
+            quit_fn = getattr(module, "quit", None)
+            if callable(quit_fn):
+                quit_fn()
         self.sm.transition(S.TERMINATED, note="session complete")
         log.info("J.A.R.V.I.S. terminated")
 

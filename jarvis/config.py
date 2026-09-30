@@ -55,6 +55,10 @@ class Settings:
     gui_failsafe: bool = field(default_factory=lambda: _env("JARVIS_GUI_FAILSAFE", "true").lower() != "false")
     gui_pause: float = field(default_factory=lambda: float(_env("JARVIS_GUI_PAUSE", "0.1")))
 
+    # --- MS Office automation (Word / PowerPoint / Excel) ---
+    office_output_dir: str = field(default_factory=lambda: _env(
+        "JARVIS_OFFICE_OUTPUT_DIR", "logs/office"))
+
     @property
     def force_dry_run(self) -> bool:
         """true/false explicit; 'auto' lets each module decide by capability."""
