@@ -18,6 +18,7 @@ from .exceptions import (ActionError, JarvisError, ReasoningError,
 from .logging_setup import get_logger, setup_logging
 from .modules.base import AutomationModule
 from .modules.browser import BrowserModule
+from .modules.excel import ExcelModule
 from .modules.gui import GuiModule
 from .modules.parser import ParserModule
 from .modules.powerpoint import PowerPointModule
@@ -117,6 +118,31 @@ class ActionExecutor:
             ("powerpoint", "save"): lambda a: module.save(a.get("path")),
             ("powerpoint", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
             ("powerpoint", "launch"): lambda a: module.launch(a.get("path")),
+            # excel (MS Excel)
+            ("excel", "create"): lambda a: module.create(a.get("path"),
+                                                         a.get("title"),
+                                                         a.get("sheet")),
+            ("excel", "open"): lambda a: module.open(a["path"]),
+            ("excel", "read"): lambda a: module.read(a.get("sheet"),
+                                                     a.get("max_rows", 50)),
+            ("excel", "write"): lambda a: module.write(a.get("start", "A1"),
+                                                       a.get("rows", []),
+                                                       a.get("sheet")),
+            ("excel", "append_rows"): lambda a: module.append_rows(
+                a.get("rows", []), a.get("sheet")),
+            ("excel", "set_formula"): lambda a: module.set_formula(
+                a["cell"], a["formula"], a.get("sheet")),
+            ("excel", "format"): lambda a: module.format(
+                a.get("target", "A1"), a.get("bold"), a.get("italic"),
+                a.get("number_format"), a.get("fill"), a.get("col_width"),
+                a.get("sheet")),
+            ("excel", "add_chart"): lambda a: module.add_chart(
+                a.get("kind", "bar"), a.get("title", ""),
+                a.get("data_ref", ""), a.get("cats_ref", ""),
+                a.get("anchor", "F2"), a.get("sheet")),
+            ("excel", "save"): lambda a: module.save(a.get("path")),
+            ("excel", "export_pdf"): lambda a: module.export_pdf(a.get("path")),
+            ("excel", "launch"): lambda a: module.launch(a.get("path")),
         }
         key = (action.tool, action.action)
         if key not in dispatch:
@@ -175,6 +201,7 @@ class JarvisAgent:
             "browser": BrowserModule(self.settings, dry_run_override=mode),
             "word": WordModule(self.settings, dry_run_override=mode),
             "powerpoint": PowerPointModule(self.settings, dry_run_override=mode),
+            "excel": ExcelModule(self.settings, dry_run_override=mode),
         }
         self.brain: CognitiveEngine = build_brain(self.settings)
         self.executor = ActionExecutor(self.modules)

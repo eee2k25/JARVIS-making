@@ -200,3 +200,52 @@ class PowerPointSkill(_OfficeSkill):
         bullets = sum(len(s.get("bullets", [])) for s in inv.get("slides", []))
         return True, (f"deck OK (slides={have}, bullets={bullets}, "
                       f"titles verified={len(expected_titles)})")
+
+
+class ExcelSkill(_OfficeSkill):
+    """Excel workbook mission: inventory a .xlsx, then realize the grid blueprint.
+
+    Unlike Word/PowerPoint, an Excel blueprint describes the WHOLE sheet, so
+    the workbook is rebuilt on every realization (no stale rows):
+        {"title": "Budget", "sheet": "Q3",
+         "headers": ["Item", "Qty"], "rows": [["A", 2]],
+         "formulas": {"C2": "=B2*10"}, "format": {"target": "A1:B1", "bold": true}}
+    """
+
+    name = "excel"
+    engine = "excel"
+    mission = "MS Excel mission: maintain the workbook per the blueprint."
+
+    def _empty_inventory(self) -> dict:
+        return {"sheets": [], "rows": [], "formulas": {}, "max_row": 0}
+
+    def _stats(self, inventory: dict) -> dict:
+        rows = [r for r in inventory.get("rows", [])
+                if any(c is not None for c in r)]
+        return {
+            "exists": inventory.get("exists", False),
+            "sheets": len(inventory.get("sheets", [])),
+            "rows": len(rows),
+            "formulas": len(inventory.get("formulas", {})),
+        }
+
+    def _verify_content(self, ctx, target, blueprint, stats):
+        module = ctx.agent.modules[self.engine]
+        module.open(str(target))
+        inv = module.read(sheet=blueprint.get("sheet"))
+        if inv.get("dry_run"):
+            return True, "workbook content verified in shadow mode"
+
+        rows = [r for r in inv.get("rows", [])
+                if any(c is not None for c in r)]
+        expected = ((1 if blueprint.get("headers") else 0)
+                    + len(blueprint.get("rows") or []))
+        if len(rows) != expected:
+            return False, (f"expected {expected} populated row(s), "
+                           f"found {len(rows)}")
+        formulas = inv.get("formulas", {})
+        for cell in (blueprint.get("formulas") or {}):
+            if cell not in formulas:
+                return False, f"formula missing at cell {cell}"
+        return True, (f"workbook OK (sheets={len(inv.get('sheets', []))}, "
+                      f"rows={len(rows)}, formulas={len(formulas)})")

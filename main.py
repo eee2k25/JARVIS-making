@@ -9,6 +9,7 @@ Usage:
     python main.py gui-test            # pyautogui smoke test (desktop only)
     python main.py word [path]         # MS Word cycle (report blueprint)
     python main.py powerpoint [path]   # MS PowerPoint cycle (briefing blueprint)
+    python main.py excel [path]        # MS Excel cycle (power budget blueprint)
     python main.py run <skill> --url X # run a registered skill
 """
 
@@ -23,7 +24,7 @@ from jarvis import JarvisAgent, __version__
 from jarvis.config import Settings
 from jarvis.fixtures import FixtureServer
 from jarvis.logging_setup import get_logger
-from jarvis.skills.office import PowerPointSkill, WordSkill
+from jarvis.skills.office import ExcelSkill, PowerPointSkill, WordSkill
 from jarvis.skills.recon import WebReconSkill
 
 log = get_logger("jarvis.cli")
@@ -66,6 +67,23 @@ POWERPOINT_BLUEPRINT = {
                      "Vision-guided GUI plans"],
          "notes": "Close with what comes next."},
     ],
+}
+
+EXCEL_BLUEPRINT = {
+    "title": "J.A.R.V.I.S. Power Budget",
+    "sheet": "Power Budget",
+    "headers": ["Subsystem", "Draw (W)", "Hours", "Energy (Wh)"],
+    "rows": [
+        ["Reactor core", 3100, 24, None],
+        ["Sensor array", 220, 24, None],
+        ["Actuation bus", 480, 6, None],
+        ["Cognition cluster", 950, 24, None],
+    ],
+    "formulas": {
+        "D2": "=B2*C2", "D3": "=B3*C3", "D4": "=B4*C4", "D5": "=B5*C5",
+    },
+    "format": {"target": "A1:D1", "bold": True, "fill": "FF2060",
+               "col_width": 18},
 }
 
 
@@ -200,6 +218,14 @@ def cmd_powerpoint(args: argparse.Namespace) -> int:
                        "PowerPoint", args)
 
 
+def cmd_excel(args: argparse.Namespace) -> int:
+    settings = Settings.load()
+    path = args.path or os.path.join(settings.office_output_dir,
+                                     "jarvis_power_budget.xlsx")
+    return _run_office(ExcelSkill(path=path, blueprint=EXCEL_BLUEPRINT),
+                       "Excel", args)
+
+
 # ── wiring ───────────────────────────────────────────────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jarvis",
@@ -232,6 +258,11 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("path", nargs="?", default=None,
                     help="target .pptx (default: <office dir>/jarvis_briefing.pptx)")
     pp.set_defaults(fn=cmd_powerpoint)
+
+    xl = sub.add_parser("excel", help="MS Excel cycle (power budget -> .xlsx)")
+    xl.add_argument("path", nargs="?", default=None,
+                    help="target .xlsx (default: <office dir>/jarvis_power_budget.xlsx)")
+    xl.set_defaults(fn=cmd_excel)
     return p
 
 
